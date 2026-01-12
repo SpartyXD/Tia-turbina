@@ -1,170 +1,35 @@
 #include <Arduino.h>
-
-//Macros
-#define rep(i, n) for(int i=0; i<n; i++)
-#define DBG_MODE true
-
-//==================== <Pines> ===========================
-
-//------- Perifericos ----------
-#define BUTTON_PIN_A 2
-#define BUTTON_PIN_B 5
-#define PINBUZZER 10
-
-//------- Motores ----------
-//Izq
-# define AIN1 9
-# define AIN2 8
-# define PWMA 5
-
-//Der
-# define BIN1 7 
-# define BIN2 4 
-# define PWMB 6 
-
-//------- Sensores IR ----------
-
-#define SENSOR_COUNT 6
-const int sensorCentralPins[SENSOR_COUNT] = {A6, A5, A4, A3, A2, A1};
-const double weights[SENSOR_COUNT] = {-2.5, -1.5, -0.5, 0.5, 1.5, 2.5};
-
-#define LEFT_PIN A7
-#define RIGHT_PIN A0
-
-//Pin manager
-const int INPUT_PINS[] = {};
-const int OUTPUT_PINS[] = {};
-
-const int N_INPUT = sizeof(INPUT_PINS)/sizeof(int);
-const int N_OUTPUT = sizeof(OUTPUT_PINS)/sizeof(int);
-
-
-//------- Code ----------
-
-void init_pins(){
-  pinMode(BUTTON_PIN_A, INPUT); 
-  pinMode(BUTTON_PIN_B, INPUT);
-  pinMode(PINBUZZER, OUTPUT);
-  
-  pinMode(AIN1, OUTPUT);
-  pinMode(AIN2, OUTPUT);
-  pinMode(PWMA, OUTPUT);
-
-  pinMode(BIN1, OUTPUT);
-  pinMode(BIN2, OUTPUT);
-  pinMode(PWMB, OUTPUT);
-
-  rep(i, N_INPUT)
-      pinMode(INPUT_PINS[i], INPUT);
-  rep(i, N_OUTPUT)
-      pinMode(OUTPUT_PINS[i], OUTPUT);  
-}
-
+#include <misc.h>
 
 
 //==================== <Objects> ===========================
 
-//------- Motores ----------
+//------- Motors ----------
 
-void MotorIz(int val) {
+void setMotor(int a_pin, int b_pin, int val){
   val = constrain(val, -255.0, 255.0);
 
   if (val >= 0){
-    digitalWrite(AIN1, HIGH);
-    digitalWrite(AIN2, LOW);
+    analogWrite(a_pin, val);
+    analogWrite(b_pin, LOW);
   }
   else{
-    //atras
-    digitalWrite(AIN1, LOW);
-    digitalWrite(AIN2, HIGH);
-    val *= -1;
+    //reverse
+    analogWrite(a_pin, LOW);
+    analogWrite(b_pin, val);
   }
-
-  // Setea Velocidad
-  analogWrite(PWMA, val);
 }
 
 
-void MotorDe(int val){
-  val = constrain(val, -255.0, 255.0);
-
-  if (val >= 0){
-    digitalWrite(BIN1, HIGH);
-    digitalWrite(BIN2, LOW);
-  } 
-  else{
-    //atras
-    digitalWrite(BIN1, LOW);
-    digitalWrite(BIN2, HIGH);
-    val *= -1;
-  }
-
-  // Setea Velocidad
-  analogWrite(PWMB, val);
+void setMotors(int left, int right){
+  setMotor(AIN1, AIN2, left);
+  setMotor(BIN1, BIN2, right);
 }
 
 
-void Motores(int left, int right){
-  MotorIz(left);
-  MotorDe(right);
-}
-
-
-//------- Buzzer ----------
-
-void beep(unsigned int frec=2000, unsigned int dur=100){
-  tone(PINBUZZER, frec, dur); 
-  delay(200);
-}
-
-
-void startupBeep(){
-    int C5 = 523;  
-    int E5 = 659;  
-    int G5 = 784;  
-    int shortDuration = 200;
-    int longDuration = 400; 
-
-    beep(C5, shortDuration);
-    beep(E5, shortDuration);
-    beep(G5, longDuration);
-}
-
-
-void chillBeep(){
-    beep(700, 100);
-    delay(50);
-    beep(1000, 100);
-    delay(50);
-    beep(1300, 100);
-    delay(150);
-    beep(1000, 150);
-}
-
-
-void calibrateBeep(){
-    beep(700, 100);
-    delay(50);
-    beep(1000, 100);
-    delay(50);
-    beep(1300, 100);
-    delay(150);
-    beep(1000, 150);
-}
-
-
-//------- Boton ----------
-
-void WaitBoton(){
-  if(DBG_MODE){
-    Serial.println("\nEsperando boton\n");
-  }
-  
-  delay(1000);
-
-  while(!digitalRead(BUTTON_PIN_A)){}
-  
-  beep();
+void setTurbine(int val){
+  val = constrain(val, 0, 255.0);
+  analogWrite(TURBINE_PIN, val);
 }
 
 
@@ -176,9 +41,8 @@ int v_s_min[SENSOR_COUNT+2];
 int v_s_max[SENSOR_COUNT+2];
 int v_s[SENSOR_COUNT+2];
 
-
-int umbral_l = 0;
-int umbral_r = 0;
+int l_threshold = 0;
+int r_threshold = 0;
 
 volatile int s_p[SENSOR_COUNT];
 bool white_line = true;
@@ -188,19 +52,15 @@ int OUT_OF_LINE_POS = 255;
 int pos;
 int l_pos;
 
-#define LEFT_IDX SENSOR_COUNT
-#define RIGHT_IDX SENSOR_COUNT+1
-
-//------- FUNCIONES SENSORES ----------
+//------- SENSOR FUNCTIONS ----------
 
 void Sensors_init(){
-  //Modo pines
   pinMode(LEFT_PIN, INPUT);
   pinMode(RIGHT_PIN, INPUT);
   rep(i, SENSOR_COUNT)
     pinMode(sensorCentralPins[i], INPUT);
 
-  //Inicializar arrays
+  //Init arrays
   rep(i, SENSOR_COUNT+2){
     v_s_min[i] = 4096;
     v_s_max[i] = 0;
@@ -217,12 +77,12 @@ void readAll(){
 }
 
 
-void calibracion(){
+void sensorCalibration(){
   for (int j = 0; j < 100; j++) {
     delay(30);
     readAll();
 
-    //Actualizar arrays
+    //Update arrays
     rep(i, SENSOR_COUNT+2){
       if(DBG_MODE){
         Serial.print(v_s[i]);
@@ -234,31 +94,29 @@ void calibracion(){
     }
   }
 
-  umbral_l = (v_s_min[LEFT_IDX] + v_s_max[LEFT_IDX]) * 0.4;
-  umbral_r = (v_s_min[RIGHT_IDX] + v_s_max[RIGHT_IDX]) * 0.6;
+  l_threshold = (v_s_min[LEFT_IDX] + v_s_max[LEFT_IDX]) * LEFT_THRESHOLD;
+  r_threshold = (v_s_min[RIGHT_IDX] + v_s_max[RIGHT_IDX]) * RIGHT_THRESHOLD;
 
-  beep();
-  beep();
 
   if(DBG_MODE){
-    Serial.print("\n\nMinimos\t");
+    Serial.print("\n\nMin values\t");
     rep(i, SENSOR_COUNT){
       Serial.print(v_s_min[i]);
       Serial.print("\t");
     }
     Serial.println();
 
-    Serial.print("\n\nMaximos\t");
+    Serial.print("\n\nMax values\t");
     rep(i, SENSOR_COUNT){
       Serial.print(v_s_max[i]);
       Serial.print("\t");
     }
     Serial.println();
 
-    Serial.print("Umbrales:\t");
-    Serial.print(umbral_r);
+    Serial.print("Thresholds:\t");
+    Serial.print(r_threshold);
     Serial.print("\t\t");
-    Serial.print(umbral_r);
+    Serial.print(r_threshold);
     Serial.println("\n");
   }
 
@@ -312,9 +170,9 @@ int GetPos(){
   return pos;
 }
 
-//==================== <LauchaBot> ===========================
+//==================== <Main program> ===========================
 
-//------- FUNCIONES ----------
+//------- FUNCTIONS ----------
 
 //Main
 void restart_errors();
@@ -331,33 +189,35 @@ void detectGeo();
 //------- PARAMETROS GLOBALES ----------
 
 //Velocidades
-#define CANT_VELOCIDADES 3
+#define N_SPEEDS 3
 int CURRENT_SPEED = 0;
 
-float PIDs[CANT_VELOCIDADES][4] = {
-  {100, 0.65, 25, 0.00001},
-  {150, 0.8, 30, 0.00001},
-  {175, 0.875, 32, 0.00001}
+// base | kp | kd | ki | turbine
+float PIDs[N_SPEEDS][5] = {
+  {100, 0.65, 25, 0.00001, 0},
+  {150, 0.8, 30, 0.00001, 0},
+  {175, 0.875, 32, 0.00001, 0}
 };
 
 //PID
 int base = 0;
+int turbine_speed = 0;
 float Kp = 0;
 float Kd = 0;
 float Ki = 0;
 
-#define CANT_ERRORES 25
+#define N_ERRORS 25
 int error_sum = 0;
-int errors[CANT_ERRORES];
+int errors[N_ERRORS];
 int current_idx = 0;
 
 int setpoint = 0;
 int error = 0;
 int last_error = 0;
-int pot_limite = 250;
+int max_power = 250;
 
 //Hits
-int fin = 0;
+int final_hit_count = 0;
 bool ON_RACE = false;
 
 int l_geo=0;
@@ -368,15 +228,16 @@ int geo = 0;
 
 int HL, HR = 0;
 
-//------- FUNCIONES MAIN ----------
+//------- Function implementations ----------
 
 void update_PID_data(int idx){
-  idx = constrain(idx, 0, CANT_VELOCIDADES);
+  idx = constrain(idx, 0, N_SPEEDS);
 
   base = PIDs[idx][0];
   Kp = PIDs[idx][1];
   Kd = PIDs[idx][2];
   Ki = PIDs[idx][3];
+  turbine_speed = PIDs[idx][4];
 }
 
 void restart_errors(){
@@ -385,7 +246,7 @@ void restart_errors(){
     last_error = 0;
     current_idx = 0;
 
-    rep(i, CANT_ERRORES)
+    rep(i, N_ERRORS)
         errors[i] = 0;
 }
 
@@ -394,19 +255,20 @@ void update_error(int &e){
     error_sum -= errors[current_idx];
     errors[current_idx] = e;
     error_sum += e;
-    current_idx = (current_idx+1)%CANT_ERRORES;
+    current_idx = (current_idx+1)%N_ERRORS;
 }
 
 
 void print_data(){
     if(DBG_MODE){
       //Imprimir
-      Serial.println("Datos:\n");
+      Serial.println("Data:\n");
       Serial.println("KP: " + String(Kp));
       Serial.println("KD: " + String(Kd));
       Serial.println("KI: " + String(Ki));
       Serial.println("Base: " + String(base));
-      Serial.println("Pot limite: " + String(pot_limite));
+      Serial.println("Turbine speed: " + String(turbine_speed));
+      Serial.println("Max power: " + String(max_power));
       Serial.println("White line: " + String(white_line));
       Serial.println("=====================\n");
     }
@@ -414,29 +276,26 @@ void print_data(){
 
 
 void start_Race(){
+    print_data();
     ON_RACE = true;
-    fin = 0;
+    final_hit_count = 0;
 
     update_PID_data(CURRENT_SPEED);
     restart_errors();
-
-    beep(2000, 100);
-    beep(2300, 200);
 }
 
 
 void end_race(){
-    //Parar todo
-    Motores(0, 0);
+    //Stop all
+    setMotors(0, 0);
+    setTurbine(0);
     ON_RACE = false;
-    fin = 0;
+    final_hit_count = 0;
 
     l_geo = ll_geo = lll_geo = 0;
     geo = 0;
 
-    //Musiquita de final
-    chillBeep();
-    CURRENT_SPEED = (CURRENT_SPEED + 1) % CANT_VELOCIDADES;
+    CURRENT_SPEED = (CURRENT_SPEED + 1) % N_SPEEDS;
 }
 
 
@@ -446,8 +305,8 @@ void Read_hits(){
     HL = analogRead(LEFT_PIN);
     HR = analogRead(RIGHT_PIN);
 
-    HL = (HL > umbral_l) ? 0 : 1;
-    HR = (HR > umbral_r) ? 0: 1;
+    HL = (HL > l_threshold) ? 0 : 1;
+    HR = (HR > r_threshold) ? 0: 1;
 
     if(!white_line){
         HL = !HL;
@@ -459,24 +318,24 @@ void Read_hits(){
 void detectGeo() {
     Read_hits();
 
-    //Detectar geo actual
+    //Detect actual geo
     if(HL == HR)
         geo = (HL == 0) ? 0 : 3; // 0 0 | 1 1
     else
         geo = (HL == 1) ? 1 : 2; // 1 0 | 0 1
 
-    //Ver si algo ha cambiado xd
+    //Check for changes
     if(l_geo == geo)
         return;
 
     if(geo == 0 && l_geo == 2 && ll_geo == 0){
-      fin++;
+      final_hit_count++;
 
-      if(fin >= 2)
+      if(final_hit_count >= 2)
         end_race();
     }
     
-    //Actualizar valores de geo
+    //Update geo vals
     lll_geo = ll_geo;
     ll_geo = l_geo;
     l_geo = geo;
@@ -487,49 +346,64 @@ void detectGeo() {
 
 void setup(){
   if (DBG_MODE){
-    Serial.begin(9600);
-    Serial.println("Iniciando todo..");
+    Serial.begin(115200);
+    Serial.println("Initializing systems...");
   }
+
+  setLed(POWER_LED, 255);
+  setLed(STATUS_LED, 0);
+  setLed(MODE_LED, 0);
   
   init_pins();
   Sensors_init();
-  Motores(0, 0);
+  setMotors(0, 0);
+  setTurbine(0);
 
   delay(500);
 
-  startupBeep();
-  delay(500);
-  calibrateBeep();
+  setLed(POWER_LED, 255);
+  setLed(STATUS_LED, 0);
+  setLed(MODE_LED, 255);
   
-  WaitBoton();
-  calibracion();
+  WaitBoton(A);
+  setLed(POWER_LED, 0);
+  sensorCalibration();
 }
 
 
 void loop(){
-  // if(digitalRead(BUTTON_PIN_A))
-  //   end_race();
+  if(digitalRead(BUTTON_PIN_A))
+    end_race();
 
   int p = GetPos();
   detectGeo();
 
   if(!ON_RACE){
-    WaitBoton();
+    setLed(POWER_LED, 0);
+    setLed(STATUS_LED, 255);
+    setLed(MODE_LED, 0);
+
+    WaitBoton(A);
+
+    setLed(POWER_LED, 255);
+    setLed(STATUS_LED, 255);
+    setLed(MODE_LED, 255);
+
     ON_RACE = true;
     return;
   }
 
-  //Obtener error
+  //Get error
   int error = p - setpoint;
   int d = error - last_error;
   update_error(error);
   last_error = error;
 
-  //Obtener PID
-  int pot_giro = int(Kp * error) + int(Kd * (d)) + int(Ki * (error_sum));
-  pot_giro = constrain(pot_giro, -pot_limite, pot_limite);
+  //Apply PID
+  int turn_power = int(Kp * error) + int(Kd * (d)) + int(Ki * (error_sum));
+  turn_power = constrain(turn_power, -max_power, max_power);
   
-  Motores(base + pot_giro, base - pot_giro);
+  setMotors(base + turn_power, base - turn_power);
   last_error = error;
 }
 
